@@ -192,11 +192,6 @@ const Login = () => {
                         </Button>
                     </form>
 
-                    <Box sx={{ mt: 3, textAlign: 'center' }}>
-                        <Typography variant="body2" color="text.secondary">
-                            Demo Users: Ajeet/ajeet123 or Shubhika/shubhika123
-                        </Typography>
-                    </Box>
                 </Paper>
             </Container>
         </Box>
