@@ -140,8 +140,8 @@ The application will be available at:
 
 1. **Login**: Use one of the predefined credentials:
 
-   - Username: `Ajeet`, Password: `ajeet123`
-   - Username: `Shubhika`, Password: `shubhika123`
+   - Username: `User1`, Password: `user1123`
+   - Username: `User2`, Password: `user2123`
 
 2. **Chat**: Start messaging with the other user in real-time
 
