@@ -1,0 +1,48 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String    @id @default(cuid())
+  username          String    @unique
+  password          String
+  isOnline          Boolean   @default(false)
+  lastSeen          DateTime  @default(now())
+  pushSubscription  String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  sentMessages      Message[] @relation("SentMessages")
+  receivedMessages  Message[] @relation("ReceivedMessages")
+
+  @@index([username])
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  sender    String
+  receiver  String
+  message   String
+  timestamp DateTime @default(now())
+  read      Boolean  @default(false)
+  delivered Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  senderUser    User @relation("SentMessages", fields: [sender], references: [username], onDelete: Cascade)
+  receiverUser  User @relation("ReceivedMessages", fields: [receiver], references: [username], onDelete: Cascade)
+
+  @@index([sender])
+  @@index([receiver])
+  @@index([timestamp])
+}

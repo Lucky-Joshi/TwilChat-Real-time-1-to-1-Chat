@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const User = require('../models/User');
+const prisma = require('../lib/prisma');
 
 const login = async (req, res) => {
     try {
@@ -17,21 +17,32 @@ const login = async (req, res) => {
         }
 
         // Find or create user in database
-        let user = await User.findOne({ username });
+        let user = await prisma.user.findUnique({
+            where: { username }
+        });
+
         if (!user) {
             const hashedPassword = await bcrypt.hash(password, 10);
-            user = new User({ username, password: hashedPassword });
-            await user.save();
+            user = await prisma.user.create({
+                data: {
+                    username,
+                    password: hashedPassword
+                }
+            });
         }
 
         // Update user status
-        user.isOnline = true;
-        user.lastSeen = new Date();
-        await user.save();
+        user = await prisma.user.update({
+            where: { id: user.id },
+            data: {
+                isOnline: true,
+                lastSeen: new Date()
+            }
+        });
 
         // Generate JWT token
         const token = jwt.sign(
-            { userId: user._id, username: user.username },
+            { userId: user.id, username: user.username },
             process.env.JWT_SECRET,
             { expiresIn: '24h' }
         );
@@ -39,7 +50,7 @@ const login = async (req, res) => {
         res.json({
             token,
             user: {
-                id: user._id,
+                id: user.id,
                 username: user.username,
                 isOnline: user.isOnline
             }
@@ -52,12 +63,13 @@ const login = async (req, res) => {
 
 const logout = async (req, res) => {
     try {
-        const user = await User.findById(req.userId);
-        if (user) {
-            user.isOnline = false;
-            user.lastSeen = new Date();
-            await user.save();
-        }
+        const user = await prisma.user.update({
+            where: { id: req.userId },
+            data: {
+                isOnline: false,
+                lastSeen: new Date()
+            }
+        });
         res.json({ message: 'Logged out successfully' });
     } catch (error) {
         console.error('Logout error:', error);

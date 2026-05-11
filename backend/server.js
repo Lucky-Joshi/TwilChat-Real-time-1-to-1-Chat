@@ -2,21 +2,19 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const mongoose = require('mongoose');
 const cors = require('cors');
 const webpush = require('web-push');
 const jwt = require('jsonwebtoken');
+const prisma = require('./lib/prisma');
 
 const authRoutes = require('./routes/auth');
 const messageRoutes = require('./routes/messages');
-const Message = require('./models/Message');
-const User = require('./models/User');
 
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
     cors: {
-        origin: "http://localhost:3000",
+        origin: process.env.FRONTEND_URL || "http://localhost:3000",
         methods: ["GET", "POST"]
     }
 });
@@ -43,10 +41,15 @@ app.post('/api/subscribe', async (req, res) => {
     try {
         const { subscription, username } = req.body;
 
-        const user = await User.findOne({ username });
+        const user = await prisma.user.findUnique({
+            where: { username }
+        });
+
         if (user) {
-            user.pushSubscription = subscription;
-            await user.save();
+            await prisma.user.update({
+                where: { id: user.id },
+                data: { pushSubscription: subscription }
+            });
         }
 
         res.json({ message: 'Subscription saved' });
@@ -71,10 +74,20 @@ io.on('connection', (socket) => {
 
             connectedUsers.set(decoded.username, socket.id);
 
-            // Update user online status
-            await User.findByIdAndUpdate(decoded.userId, {
-                isOnline: true,
-                lastSeen: new Date()
+            // Update user online status (or create if doesn't exist)
+            await prisma.user.upsert({
+                where: { id: decoded.userId },
+                update: {
+                    isOnline: true,
+                    lastSeen: new Date()
+                },
+                create: {
+                    id: decoded.userId,
+                    username: decoded.username,
+                    password: '', // Empty password for socket connections
+                    isOnline: true,
+                    lastSeen: new Date()
+                }
             });
 
             // Notify other users about online status
@@ -92,20 +105,20 @@ io.on('connection', (socket) => {
             const { receiver, message } = data;
 
             // Save message to database
-            const newMessage = new Message({
-                sender: socket.username,
-                receiver,
-                message,
-                delivered: connectedUsers.has(receiver)
+            const newMessage = await prisma.message.create({
+                data: {
+                    sender: socket.username,
+                    receiver,
+                    message,
+                    delivered: connectedUsers.has(receiver)
+                }
             });
-
-            await newMessage.save();
 
             // Send to receiver if online
             const receiverSocketId = connectedUsers.get(receiver);
             if (receiverSocketId) {
                 io.to(receiverSocketId).emit('newMessage', {
-                    _id: newMessage._id,
+                    id: newMessage.id,
                     sender: socket.username,
                     receiver,
                     message,
@@ -115,11 +128,16 @@ io.on('connection', (socket) => {
                 });
 
                 // Update delivered status
-                newMessage.delivered = true;
-                await newMessage.save();
+                await prisma.message.update({
+                    where: { id: newMessage.id },
+                    data: { delivered: true }
+                });
             } else {
                 // Send push notification if user is offline
-                const receiverUser = await User.findOne({ username: receiver });
+                const receiverUser = await prisma.user.findUnique({
+                    where: { username: receiver }
+                });
+
                 if (receiverUser && receiverUser.pushSubscription) {
                     const payload = JSON.stringify({
                         title: `New message from ${socket.username}`,
@@ -138,7 +156,7 @@ io.on('connection', (socket) => {
 
             // Confirm to sender
             socket.emit('messageSent', {
-                _id: newMessage._id,
+                id: newMessage.id,
                 sender: socket.username,
                 receiver,
                 message,
@@ -170,14 +188,14 @@ io.on('connection', (socket) => {
         try {
             const { messageIds, sender } = data;
 
-            await Message.updateMany(
-                {
-                    _id: { $in: messageIds },
+            await prisma.message.updateMany({
+                where: {
+                    id: { in: messageIds },
                     receiver: socket.username,
                     read: false
                 },
-                { read: true }
-            );
+                data: { read: true }
+            });
 
             // Notify sender about read receipts
             const senderSocketId = connectedUsers.get(sender);
@@ -202,10 +220,17 @@ io.on('connection', (socket) => {
 
             // Update user offline status
             if (socket.userId) {
-                await User.findByIdAndUpdate(socket.userId, {
-                    isOnline: false,
-                    lastSeen: new Date()
-                });
+                try {
+                    await prisma.user.update({
+                        where: { id: socket.userId },
+                        data: {
+                            isOnline: false,
+                            lastSeen: new Date()
+                        }
+                    });
+                } catch (error) {
+                    console.error('Error updating user offline status:', error);
+                }
             }
 
             // Notify other users about offline status
@@ -214,10 +239,12 @@ io.on('connection', (socket) => {
     });
 });
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log('Connected to MongoDB'))
-    .catch(err => console.error('MongoDB connection error:', err));
+// Graceful shutdown
+process.on('SIGINT', async () => {
+    console.log('Shutting down gracefully...');
+    await prisma.$disconnect();
+    process.exit(0);
+});
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {

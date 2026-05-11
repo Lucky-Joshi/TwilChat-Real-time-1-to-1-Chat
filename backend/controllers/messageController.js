@@ -1,17 +1,19 @@
-const Message = require('../models/Message');
-const User = require('../models/User');
+const prisma = require('../lib/prisma');
 
 const getMessages = async (req, res) => {
     try {
         const { otherUser } = req.params;
         const currentUser = req.username;
 
-        const messages = await Message.find({
-            $or: [
-                { sender: currentUser, receiver: otherUser },
-                { sender: otherUser, receiver: currentUser }
-            ]
-        }).sort({ timestamp: 1 });
+        const messages = await prisma.message.findMany({
+            where: {
+                OR: [
+                    { sender: currentUser, receiver: otherUser },
+                    { sender: otherUser, receiver: currentUser }
+                ]
+            },
+            orderBy: { timestamp: 'asc' }
+        });
 
         res.json(messages);
     } catch (error) {
@@ -25,14 +27,14 @@ const markAsRead = async (req, res) => {
         const { messageIds } = req.body;
         const currentUser = req.username;
 
-        await Message.updateMany(
-            {
-                _id: { $in: messageIds },
+        await prisma.message.updateMany({
+            where: {
+                id: { in: messageIds },
                 receiver: currentUser,
                 read: false
             },
-            { read: true }
-        );
+            data: { read: true }
+        });
 
         res.json({ message: 'Messages marked as read' });
     } catch (error) {
@@ -44,8 +46,14 @@ const markAsRead = async (req, res) => {
 const getUsers = async (req, res) => {
     try {
         const currentUser = req.username;
-        const users = await User.find({ username: { $ne: currentUser } })
-            .select('username isOnline lastSeen');
+        const users = await prisma.user.findMany({
+            where: { username: { not: currentUser } },
+            select: {
+                username: true,
+                isOnline: true,
+                lastSeen: true
+            }
+        });
 
         res.json(users);
     } catch (error) {
