@@ -59,6 +59,19 @@ self.addEventListener('notificationclick', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-    // Basic fetch handling - you can enhance this for offline support
-    event.respondWith(fetch(event.request));
+    // Don't cache API calls, just pass them through
+    if (event.request.url.includes('/api/')) {
+        event.respondWith(
+            fetch(event.request).catch(() => {
+                // Return a network error response instead of failing
+                return new Response(
+                    JSON.stringify({ error: 'Network error' }),
+                    { status: 503, statusText: 'Service Unavailable' }
+                );
+            })
+        );
+    } else {
+        // For other requests, use basic fetch
+        event.respondWith(fetch(event.request));
+    }
 });
